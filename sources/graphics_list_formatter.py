@@ -4,6 +4,7 @@ from datetime import datetime
 
 from pytz import timezone, utc
 
+from manager_debug import DebugManager as DBM
 from manager_environment import EnvironmentManager as EM
 from manager_file import FileManager as FM
 
@@ -47,7 +48,7 @@ def make_graph(percent: float):
     return f"{done_block * percent_quart}{empty_block * (25 - percent_quart)}"
 
 
-def make_list(data: List = None, names: List[str] = None, texts: List[str] = None, percents: List[float] = None, top_num: int = 5, sort: bool = True) -> str:
+def make_list(data: List = None, names: List[str] = None, texts: List[str] = None, percents: List[float] = None, top_num: int = 5, sort: bool = True, is_show_projects: bool = False) -> str:
     """
     Make list of text progress bars with supportive info.
     Each row has the following structure: [name of the measure] [quantity description (with words)] [progress bar] [total percentage].
@@ -62,17 +63,31 @@ def make_list(data: List = None, names: List[str] = None, texts: List[str] = Non
     :param percents: list of percents (total percentages), overloads data if defined.
     :param top_num: how many measures to display, default: 5.
     :param sort: if measures should be sorted by total percentage, default: True.
+    :param is_show_projects: if analyze duration with total_seconds, default: False
     :returns: The string representation of the list.
     """
+    hidden_project_hint = ""
+
     if data is not None:
         names = [value for item in data for key, value in item.items() if key == "name"] if names is None else names
         texts = [value for item in data for key, value in item.items() if key == "text"] if texts is None else texts
         percents = [value for item in data for key, value in item.items() if key == "percent"] if percents is None else percents
+        if is_show_projects:  # TODO: should it be a param?
+            total_seconds = [value for item in data for key, value in item.items() if key == "total_seconds"]
+            exclude_project_index = [idx for idx, value in enumerate(total_seconds) if value < float(EM.PROJECT_THRESHOLD_SEC)]
+            for index in exclude_project_index:  # TODO: Wait for refactoring
+                DBM.g(f'Project \"{names[index]}\" would be ignored because its duration ({total_seconds[index]}s) is lower than threshold ({EM.PROJECT_THRESHOLD_SEC}s)')
+                del names[index]
+                del texts[index]
+                del percents[index]
+            if len(exclude_project_index) != 0:
+                hidden_project_hint += f"{len(exclude_project_index)} project(s) has been hidden due to threshold setting"
 
     data = list(zip(names, texts, percents))
     top_data = sorted(data[:top_num], key=lambda record: record[2], reverse=True) if sort else data[:top_num]
     data_list = [f"{n[:25]}{' ' * (25 - len(n))}{t}{' ' * (20 - len(t))}{make_graph(p)}   {p:05.2f} % " for n, t, p in top_data]
-    return "\n".join(data_list)
+
+    return hidden_project_hint + ("\n" if (len(names) != 0) and (hidden_project_hint != "") else "") + "\n".join(data_list)
 
 
 async def make_commit_day_time_list(time_zone: str, repositories: Dict, commit_dates: Dict) -> str:
